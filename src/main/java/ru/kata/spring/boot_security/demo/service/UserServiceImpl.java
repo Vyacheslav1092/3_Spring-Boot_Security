@@ -1,72 +1,89 @@
 package ru.kata.spring.boot_security.demo.service;
 
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import ru.kata.spring.boot_security.demo.dao.UserDao;
-import ru.kata.spring.boot_security.demo.model.User;
+import org.springframework.transaction.annotation.Transactional;
+import ru.kata.spring.boot_security.demo.models.Role;
+import ru.kata.spring.boot_security.demo.models.User;
+import ru.kata.spring.boot_security.demo.repositories.UserRepository;
 
-import javax.transaction.Transactional;
+import java.util.Collection;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
-public class UserServiceImpl implements UserService, UserDetailsService {
+@Transactional
+public class UserServiceImpl implements UserService {
 
-    private final UserDao userDao;
+    private final UserRepository userRepository;
 
-    public UserServiceImpl(UserDao userDao) {
-        this.userDao = userDao;
-    }
+    private final PasswordEncoder passwordEncoder;
 
-
-    @Override
-    @Transactional
-    public void addUser(User user) {
-        userDao.addUser(user);
+    public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Override
-    public User getById(Long id) {
-        return userDao.getById(id);
+    @Transactional(readOnly = true)
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
     }
 
     @Override
-    public List<User> getAllUser() {
-        return userDao.getAllUser();
+    public void saveUser(User user) {
+        String password = passwordEncoder.encode(user.getPassword());
+        user.setPassword(password);
+        userRepository.saveAndFlush(user);
     }
 
     @Override
-    @Transactional
-    public void updateUser(Long id, User user) {
-        userDao.updateUser(id, user);
+    @Transactional(readOnly = true)
+    public User getUser(int id) {
+        return userRepository.findById(id).get();
     }
 
     @Override
-    @Transactional
-    public void deleteUser(Long id) {
-        userDao.deleteUser(id);
+    public void deleteUser(int id) {
+        userRepository.deleteById(id);
     }
 
     @Override
-    @Transactional
-    public void deleteUser(User user) {
-        userDao.deleteUser(user);
+    public void updateUser(User user, int id){
+
+        User userDB = userRepository.findById(id).get(); //Находу юзера в БД, кого хочу редактировать, до отправки на обновление в БД
+
+        if (userDB.getPassword().equals(user.getPassword())) {
+            userRepository.saveAndFlush(user);
+        } else {
+            user.setPassword(passwordEncoder.encode(user.getPassword()));
+            userRepository.saveAndFlush(user);
+        }
+        userRepository.saveAndFlush(user);
     }
 
     @Override
-    public List<User> findUser(User user) {
-        return userDao.findUser(user);
-    }
-
-    @Override
-    public User getUserByUsername(String username) {
-        return userDao.getUserByUsername(username);
+    @Transactional(readOnly = true)
+    public User findByUsername(String username) {
+        return userRepository.findByUsername(username);
     }
 
     @Override
     @Transactional
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        return userDao.getUserByUsername(username);
+        User user = userRepository.findByUsername(username);
+        if (user == null){
+            throw new UsernameNotFoundException("User not found");
+        }
+        return new org.springframework.security.core.userdetails.User(user.getUsername(),user.getPassword(),rolesToAuthorities(user.getRoles()));
+
+    }
+
+    private Collection<? extends GrantedAuthority> rolesToAuthorities(Collection<Role>roles){
+        return roles.stream().map(r->new SimpleGrantedAuthority(r.getName())).collect(Collectors.toList());
     }
 }
